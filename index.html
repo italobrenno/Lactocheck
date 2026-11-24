@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="pt-BR"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0E2A2F"><link rel="manifest" href="manifest.webmanifest"><link rel="apple-touch-icon" href="icon-180.png"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="LactoCheck"><title>LactoCheck</title>
+<style>
+:root{--bg:#F2F5F4;--card:#fff;--ink:#0E2A2F;--mut:#5E7378;--bd:#D9E2E0;--pri:#0E2A2F;--on:#fff}
+@media(prefers-color-scheme:dark){:root{--bg:#0B1719;--card:#12262A;--ink:#E7F0EE;--mut:#8FA6A9;--bd:#223A3F;--pri:#E7F0EE;--on:#0B1719}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+#app{max-width:480px;margin:0 auto;padding:20px 18px 40px}
+h1{font:700 30px/1.1 Georgia,serif;margin:8px 0 4px}h2{font:700 22px/1.2 Georgia,serif;margin:6px 0 4px}
+.mut{color:var(--mut);font-size:14px;margin:4px 0 14px}
+button,.photo{font:inherit;cursor:pointer}
+.btn,.btn2,.ghost{display:block;width:100%;padding:15px;border-radius:14px;border:2px solid var(--pri);margin:10px 0;font-weight:600}
+.btn{background:var(--pri);color:var(--on)}.btn2{background:none;color:var(--ink)}.ghost{border-color:transparent;background:none;color:var(--mut)}
+.btn:disabled{opacity:.35}
+.big{font:700 44px/1 Georgia,serif}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:14px;margin:12px 0}
+.menu{display:flex;gap:14px;align-items:center;text-align:left;padding:18px}.menu span{font-size:28px}.menu small{display:block;font-weight:400;color:var(--mut)}
+.photo{display:flex;align-items:center;justify-content:center;min-height:200px;border:2px dashed var(--bd);border-radius:14px;overflow:hidden;color:var(--mut);margin:12px 0}
+.photo img{width:100%;display:block}
+textarea,input{width:100%;font:inherit;padding:12px;border-radius:12px;border:1px solid var(--bd);background:var(--card);color:var(--ink);margin:6px 0 10px}
+.lvl{text-align:center;font:700 22px Georgia,serif;margin:-4px 0 10px}
+.row{display:flex;gap:12px;align-items:center;padding:10px 0;border-top:1px solid var(--bd)}.row:first-child{border:0}
+.row img{width:48px;height:48px;border-radius:10px;object-fit:cover}.row div{flex:1;min-width:0}
+.tag{font-size:12px;font-weight:700;padding:3px 9px;border-radius:99px;color:#fff;white-space:nowrap}
+.load{text-align:center;padding:90px 0;color:var(--mut)}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0 14px}
+.chip{padding:10px 15px;border-radius:99px;border:1.5px solid var(--bd);background:var(--card);color:var(--ink)}.chip.on{background:var(--pri);color:var(--on);border-color:var(--pri)}
+label{display:block;margin-top:4px;font-size:14px;color:var(--mut)}
+.strip{display:flex;justify-content:space-between;gap:2px}.day{text-align:center}.dot{display:block;width:18px;height:18px;border-radius:50%;border:2px solid var(--bd);margin:0 auto 3px}.day small{font-size:11px;color:var(--mut)}
+.tip{border-left:5px solid #1E9E6A}.tip p{margin:4px 0 0}
+a{color:inherit}
+#toast{position:fixed;left:50%;bottom:30px;transform:translateX(-50%);background:var(--pri);color:var(--on);padding:10px 16px;border-radius:12px;display:none;max-width:90%}
+</style></head><body><div id="app"></div><div id="toast"></div>
+<script>
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const load=(k,d)=>{try{return JSON.parse(localStorage.getItem(k))??d}catch(e){return d}};
+const store=(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v))}catch(e){toast('Sem espaço para salvar')}};
+const C=()=>Object.assign({key:'',model:'gemini-2.5-flash',gpt:10},load('lc_cfg',{}));
+const LV=[['Muito baixo',0.5,'#1E9E6A'],['Baixo',2,'#7DAE2B'],['Médio',5,'#E0A100'],['Alto',12,'#E4701E'],['Muito alto',1e9,'#CC2F2F']];
+const lvOf=g=>LV.findIndex(l=>g<=l[1]);
+const c2=x=>Math.ceil(x*2-1e-9)/2;
+const fmt=n=>String(n).replace('.',',');
+const S={view:'home',mode:'prod',img:null,th:null,desc:'',items:[],r:null};
+let tt;function toast(m){const t=$('#toast');t.textContent=m;t.style.display='block';clearTimeout(tt);tt=setTimeout(()=>t.style.display='none',3500)}
+function go(v){S.view=v;render();scrollTo(0,0)}
+function start(m){S.mode=m;S.items=[];S.img=S.th=S.r=null;S.desc='';go('cap')}
+const needOf=arr=>c2(arr.reduce((a,i)=>a+i.lactose_g,0)/C().gpt);
+
+function shrink(f,max){return new Promise(res=>{const im=new Image();im.onload=()=>{const r=Math.min(1,max/Math.max(im.width,im.height)),c=document.createElement('canvas');c.width=im.width*r;c.height=im.height*r;c.getContext('2d').drawImage(im,0,0,c.width,c.height);res(c.toDataURL('image/jpeg',.8))};im.src=URL.createObjectURL(f)})}
+async function pick(el){const f=el.files[0];if(!f)return;S.desc=$('#desc').value;S.img=await shrink(f,1024);S.th=await shrink(f,96);render()}
+
+async function calc(){
+  const c=C();if(!c.key){toast('Cadastre sua chave do Gemini primeiro');return go('cfg')}
+  S.desc=$('#desc').value;$('#app').innerHTML='<p class="load">Analisando a foto e buscando dados…</p>';
+  const prompt=`Você é nutricionista especialista em intolerância à lactose. A foto mostra ${S.mode==='meal'?'um prato de uma refeição':'um produto ou alimento'}. Detalhes do usuário: ${S.desc||'nenhum'}.
+1. Identifique o item. Se for produto de mercado, busque a tabela nutricional e a lista de ingredientes na internet.
+2. Se for prato, queijo ou preparação, estime a porção visível e use tabelas de composição (TACO, USDA) e estudos.
+3. Regras da Anvisa nos rótulos: "zero lactose", "sem lactose" ou "isento" = até 0,1 g por 100 g ou ml; "baixo teor de lactose" = de 0,1 g a 1 g por 100 g ou ml; "contém lactose" = acima de 0,1 g por 100 g ou ml.
+4. Estime os gramas de lactose da porção (ou da embalagem toda, se embalado) e diga qual porção considerou.
+Responda SOMENTE com JSON, sem markdown: {"nome":"","porcao":"","lactose_g":0,"confianca":"alta|média|baixa","motivo":"explicação curta","troca":"alternativa com menos lactose, ou vazio"}`;
+  try{
+    const resp=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(c.model)}:generateContent?key=${encodeURIComponent(c.key)}`,{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({contents:[{parts:[{text:prompt},{inline_data:{mime_type:'image/jpeg',data:S.img.split(',')[1]}}]}],tools:[{google_search:{}}]})});
+    const j=await resp.json();if(!resp.ok)throw new Error(j.error?.message||'Erro '+resp.status);
+    const txt=(j.candidates?.[0]?.content?.parts||[]).map(p=>p.text||'').join('');
+    const m=txt.match(/\{[\s\S]*\}/);if(!m)throw new Error('Resposta inesperada da IA');
+    const r=JSON.parse(m[0]);r.lactose_g=Math.max(0,Number(String(r.lactose_g).replace(',','.'))||0);
+    r.lv=lvOf(r.lactose_g);r.th=S.th;
+    r.now=S.mode==='meal'?c2(needOf([...S.items,r])-needOf(S.items)):c2(r.lactose_g/c.gpt);
+    S.r=r;go('res');
+  }catch(e){toast('Falhou: '+e.message);go('cap')}
+}
+function gauge(i){
+  const P=(a,r)=>[100+r*Math.cos(a*Math.PI/180),100+r*Math.sin(a*Math.PI/180)];
+  let s='';LV.forEach((l,k)=>{const[a,b]=[P(180+k*36+1.5,80),P(180+(k+1)*36-1.5,80)];s+=`<path d="M${a} A80 80 0 0 1 ${b}" fill="none" stroke="${l[2]}" stroke-width="18" ${k==i?'':'opacity=".28"'}/>`});
+  const n=P(180+i*36+18,66);
+  return `<svg viewBox="0 0 200 112" role="img" aria-label="Risco ${LV[i][0]}">${s}<line x1="100" y1="100" x2="${n[0]}" y2="${n[1]}" stroke="var(--ink)" stroke-width="4" stroke-linecap="round"/><circle cx="100" cy="100" r="7" fill="var(--ink)"/></svg>`}
+
+function nextDish(){S.items.push(S.r);S.img=S.th=S.r=null;S.desc='';go('cap')}
+function finish(){S.items.push(S.r);const g=S.items.reduce((a,i)=>a+i.lactose_g,0);
+  const h=load('lc_hist',[]);h.unshift({t:'meal',d:Date.now(),nome:`Refeição (${S.items.length} prato${S.items.length>1?'s':''})`,lv:lvOf(g),lactose_g:g,tab:needOf(S.items),th:S.items[0].th,troca:S.items.map(i=>i.troca).filter(Boolean)[0]||'',itens:S.items.map(i=>i.nome)});
+  store('lc_hist',h);go('sum')}
+function saveProd(){const r=S.r,h=load('lc_hist',[]);h.unshift({t:'prod',d:Date.now(),nome:r.nome,lv:r.lv,lactose_g:r.lactose_g,tab:r.now,th:r.th,troca:r.troca||''});store('lc_hist',h);toast('Salvo no histórico');go('home')}
+function saveCfg(){store('lc_cfg',{key:$('#k').value.trim(),model:$('#m').value.trim()||'gemini-2.5-flash',gpt:Math.max(.5,parseFloat($('#g').value.replace(',','.'))||10)});toast('Configurações salvas');go('home')}
+function clearHist(){if(confirm('Apagar todo o histórico?')){store('lc_hist',[]);render()}}
+
+const SX=['Inchaço','Gases','Dor abdominal','Diarreia','Náusea'],SEV=['Nada','Leve','Moderado','Forte'];
+function openSint(id,from){S.from=from||'det';S.did=id;const e=load('lc_hist',[]).find(x=>x.d==id);if(!e)return;S.sid=id;S.sv=e.sint?{...e.sint,sx:[...e.sint.sx]}:{sev:0,sx:[],tom:e.tab,nota:''};go('sint')}
+function keepSv(){const t=$('#tom'),n=$('#nota');if(t)S.sv.tom=Math.max(0,parseFloat(t.value.replace(',','.'))||0);if(n)S.sv.nota=n.value}
+function setSev(n){keepSv();S.sv.sev=n;if(!n)S.sv.sx=[];render()}
+function tgl(i){keepSv();const a=S.sv.sx,k=a.indexOf(SX[i]);k<0?a.push(SX[i]):a.splice(k,1);render()}
+function saveSint(){keepSv();const h=load('lc_hist',[]),e=h.find(x=>x.d==S.sid);e.sint={...S.sv,at:Date.now()};store('lc_hist',h);toast('Sintomas registrados');go(S.from==='home'?'hist':'det')}
+function calib(){
+  const h=load('lc_hist',[]).filter(x=>x.sint&&x.sint.tom>0&&x.lactose_g>0);
+  if(h.length<5)return `Registre sintomas em mais ${5-h.length} consulta(s) para liberar a calibragem da dose.`;
+  const r=x=>x.lactose_g/x.sint.tom,ok=h.filter(x=>x.sint.sev<=1).map(r),bad=h.filter(x=>x.sint.sev>=2).map(r);
+  let t='';
+  if(ok.length)t+=`Sem sintomas relevantes, 1 comprimido cobriu até ${fmt(+Math.max(...ok).toFixed(1))} g de lactose. `;
+  if(bad.length)t+=`Com sintomas moderados ou fortes, a cobertura foi de só ${fmt(+Math.min(...bad).toFixed(1))} g por comprimido. `;
+  return t+`Hoje o app usa ${fmt(C().gpt)} g. Leve estes números ao médico antes de mudar.`}
+const TIPS=["Lactose é o açúcar natural do leite. A lactase é a enzima do intestino que a quebra para o corpo absorver.", "Intolerância à lactose não é alergia ao leite: a intolerância é digestiva, e a alergia é uma reação do sistema imunológico à proteína do leite.", "Lactase não resolve alergia ao leite. Ela atua só na lactose.", "Os sintomas costumam aparecer de 30 minutos a 2 horas depois de consumir lactose.", "Tomar a lactase logo antes ou junto com a primeira garfada costuma funcionar melhor do que tomar depois.", "Queijos duros e curados, como o parmesão, costumam ter bem menos lactose, porque boa parte dela sai no soro durante a fabricação.", "Queijos frescos, como ricota, cottage e minas frescal, costumam ter mais lactose que os curados.", "Manteiga tem pouquíssima lactose, mas não é zero. Já o creme de leite e o requeijão têm mais.", "Muitos iogurtes são melhor tolerados que o leite, porque as bactérias do fermento ajudam a digerir parte da lactose. Isso varia de pessoa para pessoa.", "Pela regra da Anvisa, “zero lactose” significa até 0,1 g de lactose por 100 g ou 100 ml do alimento.", "Pela Anvisa, “baixo teor de lactose” é entre 0,1 g e 1 g por 100 g ou 100 ml do alimento pronto para consumo.", "No Brasil, alimento com mais de 0,1 g de lactose por 100 g ou 100 ml precisa trazer no rótulo “contém lactose”.", "“Pode conter leite” é um aviso para alérgicos e não diz quanto o produto tem de lactose.", "Procure no rótulo: leite em pó, soro de leite, sólidos do leite, creme de leite e lactose. Todos indicam presença de lactose.", "Lactose aparece onde você não espera: pães, embutidos, molhos prontos, sopas instantâneas e até alguns medicamentos.", "Leite sem lactose é leite comum em que a lactose já foi quebrada em açúcares mais simples, por isso costuma ser um pouco mais doce.", "Muitas pessoas com intolerância toleram pequenas quantidades de lactose. O limite é individual, por isso registrar sintomas ajuda.", "Dividir laticínios em porções menores ao longo do dia costuma ser melhor tolerado do que uma dose grande de uma vez.", "Consumir laticínios junto com uma refeição, e não sozinhos, pode reduzir os sintomas, porque a digestão fica mais lenta.", "Sorvete, doce de leite e leite condensado costumam ter bastante lactose. Já sorbet de frutas, em geral, não tem.", "Chocolate ao leite contém lactose. O amargo costuma ter bem menos, mas confira o rótulo.", "Bebidas vegetais, como aveia, amêndoa e soja, não têm lactose. Vale conferir se têm cálcio adicionado.", "Quem reduz laticínios deve cuidar da ingestão de cálcio e vitamina D. Um nutricionista pode ajudar.", "A intolerância pode ser primária (a lactase diminui com a idade) ou secundária (depois de uma infecção ou doença intestinal, por exemplo).", "Em boa parte do mundo, a maioria dos adultos produz menos lactase do que na infância.", "A dose de lactase varia de pessoa para pessoa. Leve seu histórico de sintomas ao médico para ajustar.", "Lactase em comprimido é medida em unidades FCC. Confira a concentração na embalagem antes de comparar preços.", "Alguns medicamentos usam lactose como excipiente. Pergunte ao farmacêutico se tiver dúvida.", "Anotar o que comeu e como se sentiu por algumas semanas mostra padrões que dificilmente aparecem de memória."];
+
+function openDet(id){S.did=id;go('det')}
+function delEntry(id){if(confirm('Excluir este registro?')){store('lc_hist',load('lc_hist',[]).filter(x=>x.d!=id));go('hist')}}
+function strip(){const h=load('lc_hist',[]),cols=['#1E9E6A','#E0C200','#E4701E','#CC2F2F'];let o='';
+  for(let i=13;i>=0;i--){const d=new Date();d.setHours(0,0,0,0);d.setDate(d.getDate()-i);const k=d.toDateString(),es=h.filter(x=>new Date(x.d).toDateString()==k),ss=es.filter(x=>x.sint),c=ss.length?cols[Math.max(...ss.map(x=>x.sint.sev))]:'transparent';
+    o+=`<div class="day"><span class="dot" style="background:${c};border-color:${ss.length?c:es.length?'var(--mut)':'var(--bd)'}"></span><small>${d.getDate()}</small></div>`}
+  return `<div class="strip">${o}</div><p class="mut">Cor = pior sintoma do dia. Círculo vazio = comeu sem registrar sintomas.</p>`}
+function padroes(){const h=load('lc_hist',[]).filter(x=>x.sint);if(!h.length)return '';const c={};h.forEach(x=>x.sint.sx.forEach(s=>c[s]=(c[s]||0)+1));
+  const top=Object.entries(c).sort((a,b)=>b[1]-a[1])[0],bad=[...new Set(h.filter(x=>x.sint.sev>=2).map(x=>x.nome))].slice(0,3);
+  if(!top&&!bad.length)return '';
+  return `<div class="card"><b>Padrões</b>${top?`<p class="mut">Sintoma mais frequente: ${esc(top[0])} (${top[1]}x)</p>`:''}${bad.length?`<p class="mut">Mais ligados a sintomas moderados ou fortes: ${esc(bad.join(', '))}</p>`:''}</div>`}
+async function buscaPreco(){
+  const c=C();if(!c.key){toast('Cadastre sua chave do Gemini primeiro');return go('cfg')}
+  S.pq=$('#pq').value.trim()||'lactase 10.000 FCC comprimidos';S.pr='<p class="load">Buscando preços…</p>';render();
+  const p=`Busque na internet preços atuais no Brasil, em farmácias e lojas online, para: ${S.pq}. Liste no máximo 8 ofertas reais, da mais barata para a mais cara, e inclua a quantidade de comprimidos quando souber. Não invente preços. Responda SOMENTE com um JSON: [{"loja":"","produto":"","preco":0,"unidades":0,"obs":""}]. Use null no que não souber.`;
+  try{
+    const resp=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(c.model)}:generateContent?key=${encodeURIComponent(c.key)}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contents:[{parts:[{text:p}]}],tools:[{google_search:{}}]})});
+    const j=await resp.json();if(!resp.ok)throw new Error(j.error?.message||'Erro '+resp.status);
+    const txt=(j.candidates?.[0]?.content?.parts||[]).map(x=>x.text||'').join(''),m=txt.match(/\[[\s\S]*\]/);if(!m)throw new Error('Não encontrei preços');
+    const list=JSON.parse(m[0]),src=(j.candidates[0].groundingMetadata?.groundingChunks||[]).map(g=>g.web).filter(w=>w&&/^https?:/.test(w.uri));
+    S.pr=`<div class="card">${list.map(x=>`<div class="row"><div><b>${esc(x.loja)}</b><br><span class="mut">${esc(x.produto)}${x.unidades?' · '+esc(x.unidades)+' un.':''}${x.obs?' · '+esc(x.obs):''}</span></div><b>${x.preco!=null&&!isNaN(x.preco)?'R$ '+fmt(Number(x.preco).toFixed(2)):'—'}</b></div>`).join('')}</div>
+${src.length?`<div class="card"><b>Fontes</b>${src.slice(0,6).map(w=>`<p class="mut"><a href="${esc(w.uri)}" target="_blank" rel="noopener">${esc(w.title||w.uri)}</a></p>`).join('')}</div>`:''}`;
+  }catch(e){S.pr='';toast('Falhou: '+e.message)}
+  render()}
+const V={
+home:()=>`<h1>LactoCheck</h1><p class="mut">Foto do alimento, risco de lactose e quantos comprimidos tomar.</p>
+${(()=>{const p=load('lc_hist',[]).find(x=>!x.sint&&Date.now()-x.d<432e5);return p?`<button class="btn2 card menu" onclick="openSint(${p.d},'home')"><span>🩺</span><b>Como foi: ${esc(p.nome)}?<small>Registrar sintomas</small></b></button>`:''})()}
+<div class="card tip"><b>Você sabia?</b><p>${TIPS[Math.floor(Date.now()/864e5)%TIPS.length]}</p></div>
+<button class="btn2 card menu" onclick="start('prod')"><span>🔍</span><b>Consultar produto<small>Um item de cada vez</small></b></button>
+<button class="btn2 card menu" onclick="start('meal')"><span>🍽️</span><b>Refeição<small>Vários pratos, dose somada</small></b></button>
+<button class="btn2 card menu" onclick="go('hist')"><span>📈</span><b>Histórico<small>Consultas, insights e trocas</small></b></button>
+<button class="btn2 card menu" onclick="go('preco')"><span>🏷️</span><b>Preço da lactase<small>Buscar os menores preços agora</small></b></button>
+<button class="ghost" onclick="go('cfg')">Configurações</button>`,
+cap:()=>`<h2>${S.mode==='meal'?'Prato '+(S.items.length+1):'Consultar produto'}</h2>
+${S.items.length?`<p class="mut">Já considerado na refeição: ${fmt(needOf(S.items))} comprimido(s)</p>`:'<p class="mut">Fotografe o alimento ou a embalagem.</p>'}
+<label class="photo">${S.img?`<img src="${S.img}" alt="">`:'📷 Toque para tirar a foto'}<input type="file" accept="image/*" capture="environment" hidden onchange="pick(this)"></label>
+<textarea id="desc" rows="3" placeholder="Detalhes (opcional): marca, quantidade, ingredientes…">${esc(S.desc)}</textarea>
+<button class="btn" onclick="calc()" ${S.img?'':'disabled'}>Calcular</button><button class="ghost" onclick="go('home')">Voltar</button>`,
+res:()=>{const r=S.r,L=LV[r.lv];return `<h2>${esc(r.nome)}</h2><p class="mut">Confere se é este o item? Confiança ${esc(r.confianca)}.</p>
+${gauge(r.lv)}<div class="lvl" style="color:${L[2]}">${L[0]}</div>
+<div class="card"><span class="big">${fmt(r.now)}</span> comprimido(s) de 10.000 FCC${S.mode==='meal'?' agora':''}<br><span class="mut">${fmt(+r.lactose_g.toFixed(1))} g de lactose · ${esc(r.porcao)}</span>
+${S.mode==='meal'&&S.items.length?`<br><span class="mut">Total da refeição até aqui: ${fmt(needOf([...S.items,r]))}</span>`:''}</div>
+<p class="mut">${esc(r.motivo)}</p>${r.troca?`<p>💡 ${esc(r.troca)}</p>`:''}
+${S.mode==='meal'?`<button class="btn" onclick="nextDish()">Próximo prato</button><button class="btn2" onclick="finish()">Finalizar refeição</button>`:`<button class="btn" onclick="saveProd()">Salvar e concluir</button>`}
+<button class="ghost" onclick="go('cap')">Refazer</button>`},
+sum:()=>{const g=S.items.reduce((a,i)=>a+i.lactose_g,0);return `<h2>Refeição finalizada</h2>${gauge(lvOf(g))}<div class="lvl" style="color:${LV[lvOf(g)][2]}">${LV[lvOf(g)][0]}</div>
+<div class="card"><span class="big">${fmt(needOf(S.items))}</span> comprimido(s) no total<br><span class="mut">${fmt(+g.toFixed(1))} g de lactose em ${S.items.length} prato(s)</span></div>
+<div class="card">${S.items.map(i=>`<div class="row"><img src="${i.th}" alt=""><div><b>${esc(i.nome)}</b><br><span class="mut">${fmt(+i.lactose_g.toFixed(1))} g</span></div></div>`).join('')}</div>
+<button class="btn" onclick="go('home')">Início</button>`},
+hist:()=>{const h=load('lc_hist',[]),m=new Date().getMonth(),mh=h.filter(x=>new Date(x.d).getMonth()==m),hi=mh.filter(x=>x.lv>=3).length,tr=[...new Set(h.filter(x=>x.lv>=3&&x.troca).map(x=>x.troca))].slice(0,3);
+return `<h2>Histórico</h2>${h.length?`<div class="card"><b>${mh.length}</b> consulta(s) neste mês · <b>${hi}</b> de risco alto ou muito alto · <b>${fmt(+mh.reduce((a,x)=>a+x.tab,0).toFixed(1))}</b> comprimidos<br><span class="mut">${fmt(+mh.reduce((a,x)=>a+x.lactose_g,0).toFixed(1))} g de lactose estimados</span></div>
+<div class="card"><b>Últimos 14 dias</b>${strip()}</div>${padroes()}
+<div class="card"><b>Calibragem da dose</b><p class="mut">${calib()}</p></div>
+${tr.length?`<div class="card"><b>Trocas sugeridas</b>${tr.map(t=>`<p class="mut">💡 ${esc(t)}</p>`).join('')}</div>`:''}
+<div class="card">${h.map(x=>`<div class="row" onclick="openDet(${x.d})" style="cursor:pointer"><img src="${x.th||''}" alt=""><div><b>${esc(x.nome)}</b><br><span class="mut">${new Date(x.d).toLocaleDateString('pt-BR')} · ${fmt(x.tab)} comprimido(s)<br>${x.sint?'Sintomas: '+SEV[x.sint.sev].toLowerCase()+(x.sint.sx.length?' ('+esc(x.sint.sx.join(', '))+')':''):'Toque para registrar sintomas'}</span></div><span class="tag" style="background:${LV[x.lv][2]}">${LV[x.lv][0]}</span></div>`).join('')}</div>
+<button class="ghost" onclick="clearHist()">Apagar histórico</button>`:'<p class="mut">Nada por aqui ainda. Consulte um produto ou faça uma refeição.</p>'}<button class="btn2" onclick="go('home')">Voltar</button>`},
+sint:()=>{const e=load('lc_hist',[]).find(x=>x.d==S.sid),v=S.sv;return `<h2>Como você se sentiu?</h2><p class="mut">${esc(e.nome)} · dose sugerida: ${fmt(e.tab)} comprimido(s)</p>
+<div class="chips">${SEV.map((n,i)=>`<button class="chip ${v.sev==i?'on':''}" onclick="setSev(${i})">${n}</button>`).join('')}</div>
+${v.sev>0?`<label>Quais sintomas?</label><div class="chips">${SX.map((n,i)=>`<button class="chip ${v.sx.includes(n)?'on':''}" onclick="tgl(${i})">${n}</button>`).join('')}</div>`:''}
+<label>Comprimidos que você realmente tomou</label><input id="tom" inputmode="decimal" value="${v.tom}">
+<textarea id="nota" rows="2" placeholder="Observações (opcional)">${esc(v.nota)}</textarea>
+<button class="btn" onclick="saveSint()">Salvar sintomas</button><button class="ghost" onclick="go(S.from||'hist')">Voltar</button>`},
+det:()=>{const e=load('lc_hist',[]).find(x=>x.d==S.did);if(!e)return V.hist();const L=LV[e.lv],s=e.sint;
+return `<h2>${esc(e.nome)}</h2><p class="mut">${new Date(e.d).toLocaleString('pt-BR',{dateStyle:'short',timeStyle:'short'})}</p>
+${gauge(e.lv)}<div class="lvl" style="color:${L[2]}">${L[0]}</div>
+<div class="card"><span class="big">${fmt(e.tab)}</span> comprimido(s) sugerido(s)<br><span class="mut">${fmt(+e.lactose_g.toFixed(1))} g de lactose estimados${e.itens?'<br>'+esc(e.itens.join(', ')):''}</span></div>
+<div class="card"><b>Sintomas</b>${s?`<p>${SEV[s.sev]}${s.sx.length?' · '+esc(s.sx.join(', ')):''}</p><p class="mut">Tomou ${fmt(s.tom)} comprimido(s)${s.nota?' · '+esc(s.nota):''}</p>`:'<p class="mut">Ainda não registrado. Pode registrar a qualquer momento.</p>'}
+<button class="btn" onclick="openSint(${e.d},'det')">${s?'Editar sintomas':'Registrar sintomas'}</button></div>
+${e.troca?`<p>💡 ${esc(e.troca)}</p>`:''}
+<button class="btn2" onclick="delEntry(${e.d})">Excluir registro</button><button class="ghost" onclick="go('hist')">Voltar</button>`},
+preco:()=>`<h2>Preço da lactase</h2><p class="mut">A busca é feita na internet na hora, com os links das fontes. Confirme o preço no site antes de comprar.</p>
+<input id="pq" value="${esc(S.pq||'lactase 10.000 FCC comprimidos')}"><button class="btn" onclick="buscaPreco()">Buscar preços</button>${S.pr||''}<button class="ghost" onclick="go('home')">Voltar</button>`,
+cfg:()=>{const c=C();return `<h2>Configurações</h2><p class="mut">Tudo fica salvo só neste aparelho.</p>
+<label>Chave da API do Gemini</label><input id="k" type="password" value="${esc(c.key)}" placeholder="Cole aqui (aistudio.google.com/apikey)">
+<label>Modelo</label><input id="m" value="${esc(c.model)}">
+<label>Gramas de lactose que 1 comprimido cobre</label><input id="g" inputmode="decimal" value="${c.gpt}">
+<p class="mut">Valor inicial genérico. Confirme com o médico ou nutricionista antes de confiar na dose.</p>
+<button class="btn" onclick="saveCfg()">Salvar</button><button class="ghost" onclick="go('home')">Voltar</button>`}};
+function render(){$('#app').innerHTML=V[S.view]()}
+render();
+if('serviceWorker' in navigator)addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));
+</script></body></html>
