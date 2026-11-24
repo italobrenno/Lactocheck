@@ -38,7 +38,9 @@ const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const load=(k,d)=>{try{return JSON.parse(localStorage.getItem(k))??d}catch(e){return d}};
 const store=(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v))}catch(e){toast('Sem espaço para salvar')}};
-const C=()=>Object.assign({key:'',model:'gemini-2.5-flash',gpt:10},load('lc_cfg',{}));
+const DM='gemini-3.8-flash';
+const C=()=>{const c=Object.assign({key:'',model:DM,gpt:10},load('lc_cfg',{}));if(/^gemini-(1|2)\./.test(c.model))c.model=DM;return c};
+const errMsg=e=>/no longer available|not found|deprecated/i.test(e.message)?'Modelo indisponível. Em Configurações, troque o nome do modelo (ex.: '+DM+').':'Falhou: '+e.message;
 const LV=[['Muito baixo',0.5,'#1E9E6A'],['Baixo',2,'#7DAE2B'],['Médio',5,'#E0A100'],['Alto',12,'#E4701E'],['Muito alto',1e9,'#CC2F2F']];
 const lvOf=g=>LV.findIndex(l=>g<=l[1]);
 const c2=x=>Math.ceil(x*2-1e-9)/2;
@@ -71,7 +73,7 @@ Responda SOMENTE com JSON, sem markdown: {"nome":"","porcao":"","lactose_g":0,"c
     r.lv=lvOf(r.lactose_g);r.th=S.th;
     r.now=S.mode==='meal'?c2(needOf([...S.items,r])-needOf(S.items)):c2(r.lactose_g/c.gpt);
     S.r=r;go('res');
-  }catch(e){toast('Falhou: '+e.message);go('cap')}
+  }catch(e){toast(errMsg(e));go('cap')}
 }
 function gauge(i){
   const P=(a,r)=>[100+r*Math.cos(a*Math.PI/180),100+r*Math.sin(a*Math.PI/180)];
@@ -84,7 +86,7 @@ function finish(){S.items.push(S.r);const g=S.items.reduce((a,i)=>a+i.lactose_g,
   const h=load('lc_hist',[]);h.unshift({t:'meal',d:Date.now(),nome:`Refeição (${S.items.length} prato${S.items.length>1?'s':''})`,lv:lvOf(g),lactose_g:g,tab:needOf(S.items),th:S.items[0].th,troca:S.items.map(i=>i.troca).filter(Boolean)[0]||'',itens:S.items.map(i=>i.nome)});
   store('lc_hist',h);go('sum')}
 function saveProd(){const r=S.r,h=load('lc_hist',[]);h.unshift({t:'prod',d:Date.now(),nome:r.nome,lv:r.lv,lactose_g:r.lactose_g,tab:r.now,th:r.th,troca:r.troca||''});store('lc_hist',h);toast('Salvo no histórico');go('home')}
-function saveCfg(){store('lc_cfg',{key:$('#k').value.trim(),model:$('#m').value.trim()||'gemini-2.5-flash',gpt:Math.max(.5,parseFloat($('#g').value.replace(',','.'))||10)});toast('Configurações salvas');go('home')}
+function saveCfg(){store('lc_cfg',{key:$('#k').value.trim(),model:$('#m').value.trim()||DM,gpt:Math.max(.5,parseFloat($('#g').value.replace(',','.'))||10)});toast('Configurações salvas');go('home')}
 function clearHist(){if(confirm('Apagar todo o histórico?')){store('lc_hist',[]);render()}}
 
 const SX=['Inchaço','Gases','Dor abdominal','Diarreia','Náusea'],SEV=['Nada','Leve','Moderado','Forte'];
@@ -124,7 +126,7 @@ async function buscaPreco(){
     const list=JSON.parse(m[0]),src=(j.candidates[0].groundingMetadata?.groundingChunks||[]).map(g=>g.web).filter(w=>w&&/^https?:/.test(w.uri));
     S.pr=`<div class="card">${list.map(x=>`<div class="row"><div><b>${esc(x.loja)}</b><br><span class="mut">${esc(x.produto)}${x.unidades?' · '+esc(x.unidades)+' un.':''}${x.obs?' · '+esc(x.obs):''}</span></div><b>${x.preco!=null&&!isNaN(x.preco)?'R$ '+fmt(Number(x.preco).toFixed(2)):'—'}</b></div>`).join('')}</div>
 ${src.length?`<div class="card"><b>Fontes</b>${src.slice(0,6).map(w=>`<p class="mut"><a href="${esc(w.uri)}" target="_blank" rel="noopener">${esc(w.title||w.uri)}</a></p>`).join('')}</div>`:''}`;
-  }catch(e){S.pr='';toast('Falhou: '+e.message)}
+  }catch(e){S.pr='';toast(errMsg(e))}
   render()}
 const V={
 home:()=>`<h1>LactoCheck</h1><p class="mut">Foto do alimento, risco de lactose e quantos comprimidos tomar.</p>
